@@ -1,0 +1,47 @@
+while(true){
+    Jedis jedis = null;
+    boolean broken = false;
+    try {
+        jedis = jedisPool.getResource();
+        return jedisAction.action(jedis); //模板方法
+    } catch (JedisException e) {
+        broken = handleJedisException(e);
+        throw e;
+    } finally {
+        closeResource(jedis, broken);
+    }
+}
+ 
+/**
+ * Handle jedisException, write log and return whether the connection is broken.
+ */
+protected boolean handleJedisException(JedisException jedisException) {
+    if (jedisException instanceof JedisConnectionException) {
+        logger.error("Redis connection " + jedisPool.getAddress() + " lost.", jedisException);
+    } else if (jedisException instanceof JedisDataException) {
+        if ((jedisException.getMessage() != null) && (jedisException.getMessage().indexOf("READONLY") != -1)) {
+            logger.error("Redis connection " + jedisPool.getAddress() + " are read-only slave.", jedisException);
+        } else {
+            // dataException, isBroken=false
+            return false;
+        }
+    } else {
+        logger.error("Jedis exception happen.", jedisException);
+    }
+    return true;
+}
+/**
+ * Return jedis connection to the pool, call different return methods depends on the conectionBroken status.
+ */
+protected void closeResource(Jedis jedis, boolean conectionBroken) {
+    try {
+        if (conectionBroken) {
+            jedisPool.returnBrokenResource(jedis);
+        } else {
+            jedisPool.returnResource(jedis);
+        }
+    } catch (Exception e) {
+        logger.error("return back jedis failed, will fore close the jedis.", e);
+        JedisUtils.destroyJedis(jedis);
+    }
+}
